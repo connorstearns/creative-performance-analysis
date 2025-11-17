@@ -10,6 +10,33 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
+RATE_METRICS = [
+    "CTR",
+    "CVR",
+    "purchase_rate",
+    "add_to_cart_rate",
+    "view_content_rate",
+    "page_view_rate",
+]
+
+
+def classify_objective(objective: str) -> str:
+    """
+    Classify objective into Awareness, Conversion, or Other based on keywords.
+    """
+    if not isinstance(objective, str):
+        return "Other"
+    obj = objective.lower()
+    awareness_keywords = ["awareness", "reach", "video view", "brand", "impression"]
+    conversion_keywords = ["conversion", "purchase", "sale", "lead", "catalog", "app install"]
+    
+    if any(k in obj for k in awareness_keywords):
+        return "Awareness"
+    if any(k in obj for k in conversion_keywords):
+        return "Conversion"
+    return "Other"
+
+
 def load_and_prepare_data(uploaded_file):
     """
     Load CSV file and prepare data with derived metrics.
@@ -77,6 +104,9 @@ def load_and_prepare_data(uploaded_file):
         
         df['cumulative_impressions'] = df.groupby('creative_name')['impressions'].cumsum()
         
+        if 'objective' in df.columns:
+            df['objective_type'] = df['objective'].apply(classify_objective)
+        
         return df
     
     except Exception as e:
@@ -102,6 +132,14 @@ def apply_global_filters(df, filters):
     
     if filters['campaigns']:
         filtered_df = filtered_df[filtered_df['campaign_name'].isin(filters['campaigns'])]
+    
+    if filters.get('objectives') is not None:
+        all_objectives_in_data = set(df['objective'].dropna().unique())
+        if set(filters['objectives']) != all_objectives_in_data:
+            filtered_df = filtered_df[filtered_df['objective'].isin(filters['objectives'])]
+    
+    if 'objective_type' in filtered_df.columns and filters.get('objective_type') not in (None, 'All'):
+        filtered_df = filtered_df[filtered_df['objective_type'] == filters['objective_type']]
     
     agg_dict = {'impressions': 'sum'}
     if 'conversions' in filtered_df.columns:
@@ -159,6 +197,12 @@ def compute_aggregated_creative_metrics(df):
     
     if 'format' in df.columns:
         agg_dict['format'] = 'first'
+    
+    if 'objective' in df.columns:
+        agg_dict['objective'] = 'first'
+    
+    if 'objective_type' in df.columns:
+        agg_dict['objective_type'] = 'first'
     
     creative_metrics = df.groupby('creative_name').agg(agg_dict).reset_index()
     
@@ -465,6 +509,25 @@ def main():
         default=all_campaigns
     )
     
+    selected_objectives = None
+    selected_objective_type = "All"
+    
+    if 'objective' in df.columns:
+        all_objectives = sorted([o for o in df['objective'].dropna().unique().tolist()])
+        selected_objectives = st.sidebar.multiselect(
+            "Objective",
+            options=all_objectives,
+            default=all_objectives
+        )
+    
+    if 'objective_type' in df.columns:
+        objective_type_options = ["All", "Awareness", "Conversion", "Other"]
+        selected_objective_type = st.sidebar.selectbox(
+            "Objective Type (Awareness vs Conversion)",
+            options=objective_type_options,
+            index=0
+        )
+    
     min_impressions = st.sidebar.slider(
         "Min Impressions per Creative",
         min_value=0,
@@ -529,6 +592,8 @@ def main():
         'date_range': date_range_filter,
         'platforms': selected_platforms if selected_platforms else all_platforms,
         'campaigns': selected_campaigns if selected_campaigns else all_campaigns,
+        'objectives': selected_objectives if selected_objectives else None,
+        'objective_type': selected_objective_type,
         'min_impressions': min_impressions,
         'min_conversions': min_conversions
     }
@@ -721,6 +786,8 @@ def main():
             title=f"{selected_kpi} Trend Over Time",
             labels={'date': 'Date', selected_kpi: selected_kpi}
         )
+        if selected_kpi in RATE_METRICS:
+            fig.update_yaxes(tickformat=".2%")
         fig.update_layout(hovermode='x unified')
         st.plotly_chart(fig, use_container_width=True)
         
@@ -840,6 +907,8 @@ def main():
                 color=selected_kpi,
                 color_continuous_scale='Blues'
             )
+            if selected_kpi in RATE_METRICS:
+                fig.update_yaxes(tickformat=".2%")
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
@@ -853,6 +922,8 @@ def main():
                 title=f"Distribution of {selected_kpi} Across Creatives",
                 labels={selected_kpi: selected_kpi, 'count': 'Number of Creatives'}
             )
+            if selected_kpi in RATE_METRICS:
+                fig.update_xaxes(tickformat=".2%")
             st.plotly_chart(fig, use_container_width=True)
     
     with tab2:
@@ -864,6 +935,9 @@ def main():
         st.subheader(f"Top Performing Creatives ({len(leaderboard)} total)")
         
         display_cols = ['creative_name', 'platform', 'campaign_name']
+        
+        if 'objective' in leaderboard.columns:
+            display_cols.append('objective')
         
         if 'format' in leaderboard.columns:
             display_cols.append('format')
@@ -1017,6 +1091,15 @@ def main():
             else:
                 st.metric("ROAS", "N/A")
         
+        if 'objective' in creative_summary:
+            st.markdown("---")
+            col1, col2, col3 = st.columns([1, 1, 2])
+            with col1:
+                st.metric("Objective", creative_summary['objective'])
+            if 'objective_type' in creative_summary:
+                with col2:
+                    st.metric("Objective Type", creative_summary['objective_type'])
+        
         st.markdown("---")
         st.subheader("Fatigue Analysis")
         
@@ -1076,6 +1159,8 @@ def main():
                     yaxis_title=fatigue_kpi,
                     hovermode='x unified'
                 )
+                if fatigue_kpi in RATE_METRICS:
+                    fig.update_yaxes(tickformat=".2%")
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -1139,6 +1224,8 @@ def main():
                 yaxis_title=fatigue_kpi,
                 hovermode='x unified'
             )
+            if fatigue_kpi in RATE_METRICS:
+                fig.update_yaxes(tickformat=".2%")
             
             st.plotly_chart(fig, use_container_width=True)
         else:
@@ -1182,8 +1269,12 @@ def main():
                     top_n = min(20, len(results))
                     top_results = results.head(top_n).copy()
                     
-                    top_results[model_outcome] = top_results[model_outcome].apply(lambda x: f"{x:.4f}")
-                    top_results['predicted'] = top_results['predicted'].apply(lambda x: f"{x:.4f}")
+                    if model_outcome in RATE_METRICS:
+                        top_results[model_outcome] = top_results[model_outcome].apply(lambda x: f"{x:.3%}")
+                        top_results['predicted'] = top_results['predicted'].apply(lambda x: f"{x:.3%}")
+                    else:
+                        top_results[model_outcome] = top_results[model_outcome].apply(lambda x: f"{x:.4f}")
+                        top_results['predicted'] = top_results['predicted'].apply(lambda x: f"{x:.4f}")
                     top_results['adjusted_score'] = top_results['adjusted_score'].apply(lambda x: f"{x:.4f}")
                     top_results['impressions'] = top_results['impressions'].apply(lambda x: f"{x:,.0f}")
                     top_results['spend'] = top_results['spend'].apply(lambda x: f"${x:,.2f}")
@@ -1204,7 +1295,7 @@ def main():
                         labels={'creative_name': 'Creative Name', 'adjusted_score': 'Adjusted Score'},
                         hover_data=['campaign_name', 'platform']
                     )
-                    fig.update_xaxis(tickangle=-45)
+                    fig.update_xaxes(tickangle=-45)
                     st.plotly_chart(fig, use_container_width=True)
                     
                     st.markdown("---")
