@@ -145,6 +145,18 @@ def apply_global_filters(df, filters):
         all_topics_in_data = set(df['topic'].dropna().unique())
         if set(filters['topics']) != all_topics_in_data:
             filtered_df = filtered_df[filtered_df['topic'].isin(filters['topics'])]
+
+    # --- NEW: format filter ---
+    if filters.get('formats') is not None and 'format' in filtered_df.columns:
+        all_formats_in_data = set(df['format'].dropna().unique())
+        if set(filters['formats']) != all_formats_in_data:
+            filtered_df = filtered_df[filtered_df['format'].isin(filters['formats'])]
+
+    # --- NEW: placement filter ---
+    if filters.get('placements') is not None and 'placement' in filtered_df.columns:
+        all_place_in_data = set(df['placement'].dropna().unique())
+        if set(filters['placements']) != all_place_in_data:
+            filtered_df = filtered_df[filtered_df['placement'].isin(filters['placements'])]
     
     agg_dict = {'impressions': 'sum'}
     if 'conversions' in filtered_df.columns:
@@ -365,7 +377,7 @@ def fit_simple_adjusted_model(df, outcome_metric):
     feature_cols = ['log_impressions', 'log_spend']
     
     if 'placement' in df.columns:
-        placement_dummies = pd.get_dummies(model_df['platform'], prefix='platform')
+        placement_dummies = pd.get_dummies(model_df['placement'], prefix='placement')
         model_df = pd.concat([model_df, placement_dummies], axis=1)
         feature_cols.extend(placement_dummies.columns.tolist())
     else:
@@ -535,6 +547,26 @@ def main():
             options=objective_type_options,
             index=0
         )
+
+    selected_formats = None
+    if 'format' in df.columns:
+        all_formats = sorted([f for f in df['format'].dropna().unique().tolist()])
+        if all_formats:
+            selected_formats = st.sidebar.multiselect(
+                "Format",
+                options=all_formats,
+                default=all_formats
+            )
+
+    selected_placements = None
+    if 'placement' in df.columns:
+        all_placements = sorted([p for p in df['placement'].dropna().unique().tolist()])
+        if all_placements:
+            selected_placements = st.sidebar.multiselect(
+                "Placement",
+                options=all_placements,
+                default=all_placements
+            )
     
     selected_topics = None
     if 'topic' in df.columns:
@@ -615,6 +647,8 @@ def main():
         'objectives': selected_objectives if selected_objectives else None,
         'objective_type': selected_objective_type,
         'topics': selected_topics if selected_topics else None,
+        'formats': selected_formats if selected_formats else None,       # NEW
+        'placements': selected_placements if selected_placements else None,  # NEW
         'min_impressions': min_impressions,
         'min_conversions': min_conversions
     }
@@ -1050,8 +1084,29 @@ def main():
             column_config['page_view_rate'] = st.column_config.NumberColumn('Page View Rate', format="%.3f %%")
         if 'cost_per_page_view' in display_df.columns:
             column_config['cost_per_page_view'] = st.column_config.NumberColumn('Cost/Page View', format="$ %.2f")
+
+        # --- NEW: pick a creative to sync with Detail tab ---
+        if 'selected_creative' not in st.session_state:
+            st.session_state['selected_creative'] = leaderboard.iloc[0]['creative_name']
+
+        selected_from_leaderboard = st.selectbox(
+            "Select a creative to analyze in the Detail & Fatigue tab",
+            options=leaderboard['creative_name'].tolist(),
+            index=0 if st.session_state['selected_creative'] not in leaderboard['creative_name'].tolist()
+                   else leaderboard['creative_name'].tolist().index(st.session_state['selected_creative']),
+            key="leaderboard_creative_select"
+        )
+        st.session_state['selected_creative'] = selected_from_leaderboard
         
         st.dataframe(display_df, use_container_width=True, height=400, column_config=column_config)
+
+        csv_leaderboard = display_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download Leaderboard CSV",
+            data=csv_leaderboard,
+            file_name="creative_leaderboard.csv",
+            mime="text/csv"
+        )
         
         st.markdown("---")
         st.subheader("Creative Performance Scatter Plot")
@@ -1075,15 +1130,20 @@ def main():
         st.header("📉 Creative Detail & Fatigue Analysis")
         
         creative_list = sorted(filtered_df['creative_name'].unique().tolist())
-        
         if len(creative_list) == 0:
             st.warning("No creatives available with current filters.")
             return
-        
+
+        # default to last selected creative if available
+        default_index = 0
+        if 'selected_creative' in st.session_state and st.session_state['selected_creative'] in creative_list:
+            default_index = creative_list.index(st.session_state['selected_creative'])
+
         selected_creative = st.selectbox(
             "Select Creative to Analyze",
             options=creative_list,
-            index=0
+            index=default_index,
+            key="selected_creative"  # share key with session_state
         )
         
         creative_data = compute_fatigue_metrics_for_creative(filtered_df, selected_creative)
@@ -1158,6 +1218,12 @@ def main():
             options=fatigue_kpi_options,
             index=0
         )
+
+        secondary_kpi = st.selectbox(
+            "Optional secondary KPI (overlay)",
+            options=["None"] + fatigue_kpi_options,
+            index=0
+        )
         
         if len(creative_data) >= 3:
             age_days = creative_data['age_in_days'].values
@@ -1173,32 +1239,62 @@ def main():
                 trend_line = coeffs[0] * age_days_clean + coeffs[1]
                 
                 fig = go.Figure()
-                
+
+                # primary KPI
                 fig.add_trace(go.Scatter(
                     x=creative_data['date'],
                     y=creative_data[fatigue_kpi],
                     mode='lines+markers',
                     name=f'Actual {fatigue_kpi}',
-                    line=dict(color='blue', width=2),
-                    marker=dict(size=6)
+                    line=dict(width=2),
+                    marker=dict(size=6),
+                    yaxis="y1"
                 ))
-                
+
+                # trend line for primary
                 fig.add_trace(go.Scatter(
                     x=creative_data['date'].values[valid_indices],
                     y=trend_line,
                     mode='lines',
                     name='Trend Line',
-                    line=dict(color='red', width=2, dash='dash')
+                    line=dict(width=2, dash='dash'),
+                    yaxis="y1"
                 ))
-                
+
+                # optional secondary KPI
+                if secondary_kpi != "None":
+                    fig.add_trace(go.Scatter(
+                        x=creative_data['date'],
+                        y=creative_data[secondary_kpi],
+                        mode='lines+markers',
+                        name=f'{secondary_kpi}',
+                        line=dict(width=2, dash='dot'),
+                        marker=dict(size=5),
+                        yaxis="y2"
+                    ))
+
+                    fig.update_layout(
+                        yaxis=dict(title=fatigue_kpi),
+                        yaxis2=dict(
+                            title=secondary_kpi,
+                            overlaying='y',
+                            side='right'
+                        )
+                    )
+                else:
+                    fig.update_layout(
+                        yaxis=dict(title=fatigue_kpi)
+                    )
+
                 fig.update_layout(
                     title=f"{fatigue_kpi} Over Time for {selected_creative}",
                     xaxis_title="Date",
-                    yaxis_title=fatigue_kpi,
                     hovermode='x unified'
                 )
                 if fatigue_kpi in RATE_METRICS:
-                    fig.update_yaxes(tickformat=".2%")
+                    fig.update_yaxes(tickformat=".2%", secondary_y=False)
+                if secondary_kpi in RATE_METRICS and secondary_kpi != "None":
+                    fig.update_yaxes(tickformat=".2%", secondary_y=True)
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
@@ -1344,6 +1440,46 @@ def main():
             )
         
         topic_metrics = topic_metrics.sort_values('CTR', ascending=False)
+
+        # --- NEW: Quadrant chart: CTR vs Spend share by topic ---
+        st.markdown("---")
+        st.subheader("Spend vs CTR by Topic (Quadrant View)")
+
+        # Work with raw CTR (0-1) for chart; keep a copy to avoid fighting with % scaling
+        topic_quadrant = topic_metrics.copy()
+
+        total_spend_topics = topic_quadrant['spend'].sum()
+        topic_quadrant['spend_share'] = np.where(
+            total_spend_topics > 0,
+            topic_quadrant['spend'] / total_spend_topics,
+            0
+        )
+
+        avg_ctr_raw = topic_quadrant['CTR'].mean()
+        avg_spend_share = topic_quadrant['spend_share'].mean()
+
+        fig_q = px.scatter(
+            topic_quadrant,
+            x='spend_share',
+            y='CTR',
+            size='spend',
+            text='topic',
+            labels={
+                'spend_share': 'Share of Spend',
+                'CTR': 'CTR'
+            },
+            title="Topic Efficiency: CTR vs Share of Spend (size = spend)"
+        )
+        fig_q.update_traces(textposition="top center")
+
+        # Add quadrant lines
+        fig_q.add_vline(x=avg_spend_share, line_dash="dash", line_color="grey")
+        fig_q.add_hline(y=avg_ctr_raw, line_dash="dash", line_color="grey")
+
+        fig_q.update_yaxes(tickformat=".2%")
+        fig_q.update_xaxes(tickformat=".1%")
+        st.plotly_chart(fig_q, use_container_width=True)
+
         
         topic_metrics['CTR'] = topic_metrics['CTR'] * 100
         if 'CVR' in topic_metrics.columns:
@@ -1365,6 +1501,14 @@ def main():
             topic_column_config['CPA'] = st.column_config.NumberColumn('CPA', format="$ %.2f")
         
         st.dataframe(topic_metrics, use_container_width=True, height=400, column_config=topic_column_config)
+
+        csv_topics = topic_metrics.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download Topic Performance CSV",
+            data=csv_topics,
+            file_name="topic_performance.csv",
+            mime="text/csv"
+        )
         
         st.markdown("---")
         st.subheader("📊 Key Topic Insights")
