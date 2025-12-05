@@ -63,11 +63,21 @@ def load_and_prepare_data(uploaded_file):
         numeric_cols = ['impressions', 'clicks', 'spend']
         optional_numeric = ['conversions', 'revenue', 'purchases', 'add_to_carts', 'view_content', 'page_views']
         
+        def clean_numeric(series):
+            # Convert to string, remove $ and commas, strip spaces
+            return (
+                series.astype(str)
+                .str.replace(r'[\$,]', '', regex=True)
+                .str.strip()
+            )
+
         for col in numeric_cols:
+            df[col] = clean_numeric(df[col])
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        
+
         for col in optional_numeric:
             if col in df.columns:
+                df[col] = clean_numeric(df[col])
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
         
         df['CTR'] = np.where(df['impressions'] > 0, df['clicks'] / df['impressions'], 0)
