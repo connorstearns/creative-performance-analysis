@@ -1291,10 +1291,15 @@ def main():
                     xaxis_title="Date",
                     hovermode='x unified'
                 )
+
                 if fatigue_kpi in RATE_METRICS:
-                    fig.update_yaxes(tickformat=".2%", secondary_y=False)
+                    fig.update_yaxes(tickformat=".2%")
+
                 if secondary_kpi in RATE_METRICS and secondary_kpi != "None":
-                    fig.update_yaxes(tickformat=".2%", secondary_y=True)
+                    # Explicitly update yaxis2 layout
+                    fig.update_layout(
+                        yaxis2=dict(fig.layout.yaxis2, tickformat=".2%")
+                    )
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
