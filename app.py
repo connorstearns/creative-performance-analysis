@@ -37,55 +37,89 @@ def classify_objective(objective: str) -> str:
     return "Other"
 
 
-def classify_journey_role(row, ctr_median, cvr_median=None, intent_median=None):
+def classify_journey_role(
+    row,
+    ctr_median,
+    cvr_median=None,
+    intent_median=None,
+    cpa_median=None,
+    cvr_boost=1.2,
+    intent_boost=1.1,
+    ctr_boost=1.1,
+    cpa_discount=0.8,
+):
     """
-    Classify creative into Engagement, Intent, or Conversion based on performance.
+    Classify creative into Engagement, Intent, or Conversion.
     
-    - Engagement: High CTR, low/no conversions - top-of-funnel drivers
-    - Intent: Strong micro-conversions (add_to_cart, view_content, page_views) - mid-funnel
-    - Conversion: Strong CVR/CPA/ROAS - bottom-of-funnel closers
+    Priority:
+    1) Conversion (strong CVR/CPA vs peers)
+    2) Intent (strong micro-conversion activity vs peers)
+    3) Engagement (strong CTR vs peers)
+    
+    Falls back sensibly when medians or metrics are missing.
     """
-    ctr = row.get('CTR', 0)
-    cvr = row.get('CVR', 0)
-    
-    has_intent_metrics = any([
-        row.get('add_to_cart_rate', 0) > 0,
-        row.get('view_content_rate', 0) > 0,
-        row.get('page_view_rate', 0) > 0
-    ])
-    
-    intent_score = 0
-    intent_count = 0
-    for metric in ['add_to_cart_rate', 'view_content_rate', 'page_view_rate']:
-        if row.get(metric, 0) > 0:
-            intent_score += row.get(metric, 0)
-            intent_count += 1
-    avg_intent = intent_score / intent_count if intent_count > 0 else 0
-    
-    if cvr_median is not None and cvr_median > 0:
-        if cvr >= cvr_median:
-            return "Conversion"
-        elif has_intent_metrics and intent_median is not None and avg_intent >= intent_median:
-            return "Intent"
-        elif ctr >= ctr_median:
-            return "Engagement"
-        else:
-            if cvr > 0:
-                return "Conversion"
-            elif has_intent_metrics and avg_intent > 0:
-                return "Intent"
-            else:
-                return "Engagement"
-    else:
-        if has_intent_metrics and intent_median is not None and avg_intent >= intent_median:
-            return "Intent"
-        elif ctr >= ctr_median:
-            return "Engagement"
-        else:
-            if has_intent_metrics and avg_intent > 0:
-                return "Intent"
-            else:
-                return "Engagement"
+    ctr = row.get("CTR", 0.0)
+    cvr = row.get("CVR", 0.0)
+    cpa = row.get("CPA", None)
+
+    # ---- Intent metrics ----
+    intent_metrics = []
+    for metric in ["add_to_cart_rate", "view_content_rate", "page_view_rate"]:
+        val = row.get(metric, 0.0)
+        if val and val > 0:
+            intent_metrics.append(val)
+    avg_intent = np.mean(intent_metrics) if intent_metrics else 0.0
+    has_intent_metrics = avg_intent > 0
+
+    # ---------------------------------------------------------
+    # 1) Conversion: strong closers (CVR and/or CPA vs median)
+    # ---------------------------------------------------------
+    strong_cvr = False
+    strong_cpa = False
+
+    if cvr_median and cvr_median > 0:
+        strong_cvr = cvr >= cvr_boost * cvr_median
+
+    if cpa is not None and cpa_median and cpa_median > 0:
+        strong_cpa = cpa <= cpa_discount * cpa_median  # lower = better
+
+    if strong_cvr or strong_cpa:
+        return "Conversion"
+
+    # ---------------------------------------------------------
+    # 2) Intent: strong mid-funnel signals (micro-conversions)
+    # ---------------------------------------------------------
+    strong_intent = False
+    if has_intent_metrics and intent_median and intent_median > 0:
+        strong_intent = avg_intent >= intent_boost * intent_median
+
+    if strong_intent:
+        return "Intent"
+
+    # ---------------------------------------------------------
+    # 3) Engagement: strong attention (CTR vs median)
+    # ---------------------------------------------------------
+    strong_engagement = False
+    if ctr_median and ctr_median > 0:
+        strong_engagement = ctr >= ctr_boost * ctr_median
+
+    if strong_engagement:
+        return "Engagement"
+
+    # ---------------------------------------------------------
+    # 4) Fallback classification if medians are weak/missing
+    # ---------------------------------------------------------
+    # Some simple “best guess” rules:
+    if cvr > 0 and (not has_intent_metrics):  # only final conversions
+        return "Conversion"
+    if has_intent_metrics and avg_intent > 0:
+        return "Intent"
+    if ctr > 0:
+        return "Engagement"
+
+    # Total fallback
+    return "Engagement"
+
 
 
 def load_and_prepare_data(uploaded_file):
