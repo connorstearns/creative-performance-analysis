@@ -439,53 +439,46 @@ def compute_aggregated_creative_metrics(df):
             0
         )
 
-    # --- MEDIANS & JOURNEY ROLE ASSIGNMENT ---
+    # ---- Journey role thresholds ----
+    # CTR median (only for creatives with impressions)
+    ctr_median = creative_metrics.loc[
+        creative_metrics['impressions'] > 0, 'CTR'
+    ].median() if len(creative_metrics) > 0 else 0
 
-    # CTR median (simple, all values)
-    ctr_median = creative_metrics['CTR'].median() if len(creative_metrics) > 0 else 0
-
-    # CVR median (non-zero only, if present)
+    # CVR median (only > 0 so we don't get dragged down by zeros)
     cvr_median = None
     if 'CVR' in creative_metrics.columns:
         cvr_vals = creative_metrics.loc[creative_metrics['CVR'] > 0, 'CVR']
         cvr_median = cvr_vals.median() if len(cvr_vals) > 0 else None
 
-    # Purchase rate median (non-zero only, if present)
-    purchase_rate_median = None
-    if 'purchase_rate' in creative_metrics.columns:
-        pr_vals = creative_metrics.loc[creative_metrics['purchase_rate'] > 0, 'purchase_rate']
-        purchase_rate_median = pr_vals.median() if len(pr_vals) > 0 else None
+    # CPC median (only > 0)
+    cpc_median = None
+    if 'CPC' in creative_metrics.columns:
+        cpc_vals = creative_metrics.loc[creative_metrics['CPC'] > 0, 'CPC']
+        cpc_median = cpc_vals.median() if len(cpc_vals) > 0 else None
 
-    # CPA median (prefer cost_per_purchase, fall back to CPA)
-    cpa_median = None
-    if 'cost_per_purchase' in creative_metrics.columns:
-        cpa_series = creative_metrics['cost_per_purchase'].replace(0, np.nan)
-        cpa_median = cpa_series.median()
-    elif 'CPA' in creative_metrics.columns:
-        cpa_series = creative_metrics['CPA'].replace(0, np.nan)
-        cpa_median = cpa_series.median()
+    # Intent median based on micro-conversion rates
+    intent_scores = []
+    intent_cols = [
+        col for col in ['add_to_cart_rate', 'view_content_rate', 'page_view_rate']
+        if col in creative_metrics.columns
+    ]
 
-    # Intent median: average of non-zero micro-conversion rates across creatives
-    intent_median = None
-    intent_cols = [c for c in ['add_to_cart_rate', 'view_content_rate', 'page_view_rate']
-                   if c in creative_metrics.columns]
+    for _, row in creative_metrics.iterrows():
+        vals = [row[col] for col in intent_cols if row.get(col, 0) > 0]
+        if vals:
+            intent_scores.append(np.mean(vals))
 
-    if intent_cols:
-        # compute a simple "intent score" per creative = mean of available intent metrics
-        intent_scores = creative_metrics[intent_cols].replace(0, np.nan).mean(axis=1)
-        intent_scores = intent_scores.dropna()
-        intent_median = intent_scores.median() if len(intent_scores) > 0 else None
+    intent_median = np.median(intent_scores) if intent_scores else None
 
-    # Finally, classify each creative into a journey role
+    # Apply journey role classification
     creative_metrics['journey_role'] = creative_metrics.apply(
         lambda row: classify_journey_role(
-            row,
+            row=row,
             ctr_median=ctr_median,
-            cpc_median=cpc_median,
             cvr_median=cvr_median,
             intent_median=intent_median,
-            purchase_rate_median=purchase_rate_median,
-            cpa_median=cpa_median,
+            cpc_median=cpc_median,
         ),
         axis=1
     )
