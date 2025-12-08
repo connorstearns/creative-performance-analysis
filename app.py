@@ -51,6 +51,7 @@ def classify_journey_role(
     cvr_boost=1.2,
     intent_boost=1.1,
     ctr_boost=1.1,
+    cpc_discount=0.9, 
     cpa_discount=0.8,
     purchase_boost=1.2,
 ):
@@ -120,10 +121,17 @@ def classify_journey_role(
         return "Intent"
 
     # ---------------------------------------------------------
-    # 3) Engagement: strong attention (CTR vs median)
+    # 3) Engagement: strong cost-efficiency (CPC) + optional CTR
     # ---------------------------------------------------------
     strong_engagement = False
-    if ctr_median and ctr_median > 0:
+
+    # CPC-based signal (lower = better). e.g. <= 90% of median CPC
+    if cpc_median and cpc_median > 0 and "CPC" in row:
+        if row["CPC"] <= cpc_discount * cpc_median:
+            strong_engagement = True
+
+    # Optional backup: if CTR is also clearly strong, treat as Engagement
+    if (not strong_engagement) and ctr_median and ctr_median > 0:
         if ctr >= ctr_boost * ctr_median:
             strong_engagement = True
 
@@ -473,6 +481,7 @@ def compute_aggregated_creative_metrics(df):
         lambda row: classify_journey_role(
             row,
             ctr_median=ctr_median,
+            cpc_median=cpc_median,
             cvr_median=cvr_median,
             intent_median=intent_median,
             purchase_rate_median=purchase_rate_median,
