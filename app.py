@@ -37,61 +37,84 @@ def classify_objective(objective: str) -> str:
     return "Other"
 
 
+import numpy as np
+
 def classify_journey_role(
     row,
     ctr_median,
+    # these can be None if not available
     cvr_median=None,
     intent_median=None,
+    purchase_rate_median=None,
     cpa_median=None,
+    # tunable multipliers
     cvr_boost=1.2,
     intent_boost=1.1,
     ctr_boost=1.1,
     cpa_discount=0.8,
+    purchase_boost=1.2,
 ):
     """
     Classify creative into Engagement, Intent, or Conversion.
-    
+
     Priority:
-    1) Conversion (strong CVR/CPA vs peers)
-    2) Intent (strong micro-conversion activity vs peers)
-    3) Engagement (strong CTR vs peers)
-    
+      1) Conversion  – strong CVR / purchase_rate and/or efficient CPA
+      2) Intent      – strong micro-conversion activity vs peers
+      3) Engagement  – strong CTR vs peers
+
     Falls back sensibly when medians or metrics are missing.
     """
-    ctr = row.get("CTR", 0.0)
-    cvr = row.get("CVR", 0.0)
-    cpa = row.get("CPA", None)
 
-    # ---- Intent metrics ----
+    ctr = row.get("CTR", 0.0)
+    cvr = row.get("CVR", 0.0)  # may not exist in your data
+    purchase_rate = row.get("purchase_rate", 0.0)
+    cpa = row.get("cost_per_purchase", None) or row.get("CPA", None)
+
+    # ---- Intent metrics (mid-funnel) ----
     intent_metrics = []
     for metric in ["add_to_cart_rate", "view_content_rate", "page_view_rate"]:
         val = row.get(metric, 0.0)
         if val and val > 0:
             intent_metrics.append(val)
-    avg_intent = np.mean(intent_metrics) if intent_metrics else 0.0
+    avg_intent = float(np.mean(intent_metrics)) if intent_metrics else 0.0
     has_intent_metrics = avg_intent > 0
 
     # ---------------------------------------------------------
-    # 1) Conversion: strong closers (CVR and/or CPA vs median)
+    # 1) Conversion: strong closers
+    #    - high CVR vs median (if present)
+    #    - OR high purchase_rate vs non-zero median
+    #    - OR efficient CPA vs median
     # ---------------------------------------------------------
-    strong_cvr = False
-    strong_cpa = False
+    strong_conversion = False
 
+    # CVR-based signal (if CVR exists in your data)
     if cvr_median and cvr_median > 0:
-        strong_cvr = cvr >= cvr_boost * cvr_median
+        if cvr >= cvr_boost * cvr_median:
+            strong_conversion = True
 
+    # purchase_rate-based signal (works for your current dataset)
+    if purchase_rate_median and purchase_rate_median > 0:
+        if purchase_rate >= purchase_boost * purchase_rate_median:
+            strong_conversion = True
+    elif purchase_rate > 0:
+        # if median is 0, ANY non-zero purchase_rate is meaningful
+        strong_conversion = True
+
+    # CPA-based signal (lower is better)
     if cpa is not None and cpa_median and cpa_median > 0:
-        strong_cpa = cpa <= cpa_discount * cpa_median  # lower = better
+        if cpa <= cpa_discount * cpa_median:
+            strong_conversion = True
 
-    if strong_cvr or strong_cpa:
+    if strong_conversion:
         return "Conversion"
 
     # ---------------------------------------------------------
-    # 2) Intent: strong mid-funnel signals (micro-conversions)
+    # 2) Intent: strong mid-funnel signals
     # ---------------------------------------------------------
     strong_intent = False
     if has_intent_metrics and intent_median and intent_median > 0:
-        strong_intent = avg_intent >= intent_boost * intent_median
+        if avg_intent >= intent_boost * intent_median:
+            strong_intent = True
 
     if strong_intent:
         return "Intent"
@@ -101,23 +124,22 @@ def classify_journey_role(
     # ---------------------------------------------------------
     strong_engagement = False
     if ctr_median and ctr_median > 0:
-        strong_engagement = ctr >= ctr_boost * ctr_median
+        if ctr >= ctr_boost * ctr_median:
+            strong_engagement = True
 
     if strong_engagement:
         return "Engagement"
 
     # ---------------------------------------------------------
-    # 4) Fallback classification if medians are weak/missing
+    # 4) Fallbacks when medians are missing or everything is meh
     # ---------------------------------------------------------
-    # Some simple “best guess” rules:
-    if cvr > 0 and (not has_intent_metrics):  # only final conversions
+    if purchase_rate > 0:
         return "Conversion"
-    if has_intent_metrics and avg_intent > 0:
+    if has_intent_metrics:
         return "Intent"
     if ctr > 0:
         return "Engagement"
 
-    # Total fallback
     return "Engagement"
 
 
