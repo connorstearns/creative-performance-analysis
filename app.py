@@ -975,28 +975,34 @@ def main():
                 st.info("No engagement creatives")
         
         with col2:
-            int_data = journey_summary[journey_summary['journey_role'] == 'Intent'].iloc[0] if len(journey_summary[journey_summary['journey_role'] == 'Intent']) > 0 else None
+            int_data = journey_summary[journey_summary['journey_role'] == 'Intent'].iloc[0] \
+                if len(journey_summary[journey_summary['journey_role'] == 'Intent']) > 0 else None
+        
             st.markdown("##### 🛒 Intent Layer")
+        
             if int_data is not None and int_data['num_creatives'] > 0:
                 int_creatives = creative_metrics[creative_metrics['journey_role'] == 'Intent']
-                intent_metrics_display = []
+        
+                # top metric
+                st.metric("Creatives", f"{int(int_data['num_creatives'])}")
+        
+                # KPI metrics
                 if 'add_to_cart_rate' in int_creatives.columns:
                     avg_atc = int_creatives['add_to_cart_rate'].mean()
                     if avg_atc > 0:
-                        intent_metrics_display.append(f"ATC Rate: {avg_atc:.3%}")
+                        st.metric("ATC Rate", f"{avg_atc:.3%}")
+        
                 if 'view_content_rate' in int_creatives.columns:
                     avg_vc = int_creatives['view_content_rate'].mean()
                     if avg_vc > 0:
-                        intent_metrics_display.append(f"View Content: {avg_vc:.3%}")
+                        st.metric("View Content", f"{avg_vc:.3%}")
+        
                 if 'page_view_rate' in int_creatives.columns:
                     avg_pv = int_creatives['page_view_rate'].mean()
                     if avg_pv > 0:
-                        intent_metrics_display.append(f"Page View: {avg_pv:.3%}")
-                
-                st.metric("Creatives", f"{int(int_data['num_creatives'])}")
-                if intent_metrics_display:
-                    for m in intent_metrics_display[:2]:
-                        st.write(m)
+                        st.metric("Page View", f"{avg_pv:.3%}")
+        
+                # bottom metric
                 st.metric("Spend", f"${int_data['spend']:,.0f}")
             else:
                 st.info("No intent creatives")
