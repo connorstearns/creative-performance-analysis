@@ -41,8 +41,6 @@ import numpy as np
 
 def classify_journey_role(
     row,
-    ctr_median,
-    # these can be None if not available
     ctr_median=None,
     cpc_median=None,
     cvr_median=None,
