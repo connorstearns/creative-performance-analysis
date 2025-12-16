@@ -505,20 +505,20 @@ def build_leaderboard(creative_metrics):
 
     if has_conversions:
         leaderboard['CVR_percentile'] = leaderboard['CVR'].rank(pct=True)
-    
+
     if has_intent_metrics:
         intent_cols = [col for col in ['add_to_cart_rate', 'view_content_rate', 'page_view_rate'] 
                       if col in leaderboard.columns]
         leaderboard['intent_avg'] = leaderboard[intent_cols].mean(axis=1)
         leaderboard['intent_percentile'] = leaderboard['intent_avg'].rank(pct=True)
-    
+
     def compute_journey_score(row):
         journey_role = row.get('journey_role', 'Engagement')
         ctr_p = row.get('CTR_percentile', 0.5)
         cpc_p = row.get('CPC_percentile', 0.5)
         cvr_p = row.get('CVR_percentile', 0.5) if has_conversions else 0.5
         intent_p = row.get('intent_percentile', 0.5) if has_intent_metrics else 0.5
-        
+
         if journey_role == "Engagement":
             return 0.6 * ctr_p + 0.4 * (1 - cpc_p)
         elif journey_role == "Intent":
@@ -536,7 +536,7 @@ def build_leaderboard(creative_metrics):
                 return 0.4 * ctr_p + 0.3 * (1 - cpc_p) + 0.3 * cvr_p
             else:
                 return 0.6 * ctr_p + 0.4 * (1 - cpc_p)
-    
+
     leaderboard['score'] = leaderboard.apply(compute_journey_score, axis=1)
     leaderboard = leaderboard.sort_values('score', ascending=False)
 
@@ -616,11 +616,11 @@ def show_welcome_screen():
     ### Welcome to Creative Performance Analysis
 
     This app helps you analyze ad creative performance across platforms using a **3-layer journey framework**:
-    
+
     - 📢 **Engagement Layer** (CTR, CPC) — Top-of-funnel attention drivers
     - 🛒 **Intent Layer** (micro-conversions) — Mid-funnel purchase intent builders
     - 💰 **Conversion Layer** (CVR, CPA, ROAS) — Bottom-of-funnel closers
-    
+
     Each creative is automatically classified by its funnel role, helping you understand which assets drive awareness vs. which drive sales.
 
     #### Key Features
@@ -934,12 +934,12 @@ def main():
                 st.metric("Overall CPA", "N/A")
 
         st.markdown("---")
-        
+
         st.subheader("🎯 Portfolio View by Journey Layer")
         st.caption("Creatives are classified into three layers: **Engagement** (top-of-funnel, drives clicks), **Intent** (mid-funnel, drives micro-conversions), and **Conversion** (bottom-of-funnel, drives sales).")
-        
+
         creative_metrics = compute_aggregated_creative_metrics(filtered_df)
-        
+
         journey_summary = creative_metrics.groupby('journey_role').agg({
             'spend': 'sum',
             'impressions': 'sum',
@@ -947,21 +947,21 @@ def main():
             'creative_name': 'count'
         }).reset_index()
         journey_summary.rename(columns={'creative_name': 'num_creatives'}, inplace=True)
-        
+
         for role in ['Engagement', 'Intent', 'Conversion']:
             if role not in journey_summary['journey_role'].values:
                 journey_summary = pd.concat([journey_summary, pd.DataFrame({
                     'journey_role': [role], 'spend': [0], 'impressions': [0], 
                     'clicks': [0], 'num_creatives': [0]
                 })], ignore_index=True)
-        
+
         journey_summary = journey_summary.sort_values(
             'journey_role', 
             key=lambda x: x.map({'Engagement': 0, 'Intent': 1, 'Conversion': 2})
         )
-        
+
         col1, col2, col3 = st.columns(3)
-        
+
         with col1:
             eng_data = journey_summary[journey_summary['journey_role'] == 'Engagement'].iloc[0] if len(journey_summary[journey_summary['journey_role'] == 'Engagement']) > 0 else None
             st.markdown("##### 📢 Engagement Layer")
@@ -975,40 +975,40 @@ def main():
                 st.metric("Spend", f"${eng_data['spend']:,.0f}")
             else:
                 st.info("No engagement creatives")
-        
+
         with col2:
             int_data = journey_summary[journey_summary['journey_role'] == 'Intent'].iloc[0] \
                 if len(journey_summary[journey_summary['journey_role'] == 'Intent']) > 0 else None
-        
+
             st.markdown("##### 🛒 Intent Layer")
-        
+
             if int_data is not None and int_data['num_creatives'] > 0:
                 int_creatives = creative_metrics[creative_metrics['journey_role'] == 'Intent']
-        
+
                 # top metric
                 st.metric("Creatives", f"{int(int_data['num_creatives'])}")
-        
+
                 # KPI metrics
                 if 'add_to_cart_rate' in int_creatives.columns:
                     avg_atc = int_creatives['add_to_cart_rate'].mean()
                     if avg_atc > 0:
                         st.metric("ATC Rate", f"{avg_atc:.3%}")
-        
+
                 if 'view_content_rate' in int_creatives.columns:
                     avg_vc = int_creatives['view_content_rate'].mean()
                     if avg_vc > 0:
                         st.metric("View Content", f"{avg_vc:.3%}")
-        
+
                 if 'page_view_rate' in int_creatives.columns:
                     avg_pv = int_creatives['page_view_rate'].mean()
                     if avg_pv > 0:
                         st.metric("Page View", f"{avg_pv:.3%}")
-        
+
                 # bottom metric
                 st.metric("Spend", f"${int_data['spend']:,.0f}")
             else:
                 st.info("No intent creatives")
-        
+
         with col3:
             conv_data = journey_summary[journey_summary['journey_role'] == 'Conversion'].iloc[0] if len(journey_summary[journey_summary['journey_role'] == 'Conversion']) > 0 else None
             st.markdown("##### 💰 Conversion Layer")
@@ -1027,10 +1027,10 @@ def main():
                 st.metric("Spend", f"${conv_data['spend']:,.0f}")
             else:
                 st.info("No conversion creatives")
-        
+
         st.markdown("---")
         st.subheader("💵 Spend Distribution by Journey Role")
-        
+
         journey_spend = journey_summary[journey_summary['spend'] > 0].copy()
         if len(journey_spend) > 0:
             colors = {'Engagement': '#4CAF50', 'Intent': '#FF9800', 'Conversion': '#2196F3'}
@@ -1309,14 +1309,14 @@ def main():
         leaderboard = build_leaderboard(creative_metrics)
 
         st.info("💡 Scoring is journey-aware: **Engagement** creatives are scored primarily on CTR/CPC, **Intent** creatives on micro-conversion rates, and **Conversion** creatives on CVR/CPA.")
-        
+
         journey_role_filter = st.selectbox(
             "Filter by Journey Role",
             options=["All", "Engagement", "Intent", "Conversion"],
             index=0,
             help="Filter creatives by their funnel position"
         )
-        
+
         if journey_role_filter != "All":
             leaderboard = leaderboard[leaderboard['journey_role'] == journey_role_filter]
 
@@ -1528,14 +1528,14 @@ def main():
             journey_role = creative_summary.get('journey_role', 'Engagement')
             role_emoji = {'Engagement': '📢', 'Intent': '🛒', 'Conversion': '💰'}.get(journey_role, '📊')
             st.metric("Journey Role", f"{role_emoji} {journey_role}")
-        
+
         if 'objective' in creative_summary:
             with col2:
                 st.metric("Objective", creative_summary['objective'])
         if 'objective_type' in creative_summary:
             with col3:
                 st.metric("Objective Type", creative_summary['objective_type'])
-        
+
         if journey_role == "Engagement":
             st.info("💡 **Engagement Creative**: This creative excels at driving clicks and attention. Evaluate it primarily on CTR/CPC performance. Don't over-judge it on final CPA - its role is to generate interest.")
         elif journey_role == "Intent":
@@ -1753,16 +1753,16 @@ def main():
         st.markdown("---")
         st.subheader("📊 Spend by Topic & Journey Role")
         st.caption("See which topics are skewed toward top-of-funnel (Engagement), mid-funnel (Intent), or bottom-funnel (Conversion) creatives.")
-        
+
         topic_journey_data = creative_metrics[creative_metrics['topic'].notna()].copy()
-        
+
         if len(topic_journey_data) > 0:
             topic_journey_spend = topic_journey_data.groupby(['topic', 'journey_role']).agg({
                 'spend': 'sum',
                 'creative_name': 'count'
             }).reset_index()
             topic_journey_spend.rename(columns={'creative_name': 'num_creatives'}, inplace=True)
-            
+
             colors = {'Engagement': '#4CAF50', 'Intent': '#FF9800', 'Conversion': '#2196F3'}
             fig_stacked = px.bar(
                 topic_journey_spend,
@@ -1776,12 +1776,12 @@ def main():
             )
             fig_stacked.update_layout(xaxis_tickangle=-45)
             st.plotly_chart(fig_stacked, use_container_width=True)
-            
+
             st.markdown("---")
             st.subheader("🎯 Topic Performance by Layer")
-            
+
             layer_tabs = st.tabs(["📢 Engagement", "🛒 Intent", "💰 Conversion"])
-            
+
             with layer_tabs[0]:
                 eng_topics = topic_journey_data[topic_journey_data['journey_role'] == 'Engagement']
                 if len(eng_topics) > 0:
@@ -1803,7 +1803,7 @@ def main():
                     })
                 else:
                     st.info("No engagement creatives with topics.")
-            
+
             with layer_tabs[1]:
                 int_topics = topic_journey_data[topic_journey_data['journey_role'] == 'Intent']
                 if len(int_topics) > 0:
@@ -1823,7 +1823,7 @@ def main():
                     st.dataframe(int_by_topic, use_container_width=True, column_config=col_config)
                 else:
                     st.info("No intent creatives with topics.")
-            
+
             with layer_tabs[2]:
                 conv_topics = topic_journey_data[topic_journey_data['journey_role'] == 'Conversion']
                 if len(conv_topics) > 0:
